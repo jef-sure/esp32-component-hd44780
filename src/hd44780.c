@@ -71,29 +71,12 @@ static inline esp_err_t lcd_try_write_nibble(hd44780_t *lcd, uint8_t nibble, hd4
     return rc;
 }
 
-static inline void lcd_write_byte(hd44780_t *lcd, uint8_t data, hd44780_mode_t mode)
+static esp_err_t lcd_try_write_command(hd44780_t *lcd, uint8_t command)
 {
-    (void)lcd_try_write_byte(lcd, data, mode);
-}
-
-static inline void lcd_write_nibble(hd44780_t *lcd, uint8_t nibble, hd44780_mode_t mode)
-{
-    (void)lcd_try_write_nibble(lcd, nibble, mode);
-}
-
-static void lcd_write_command(hd44780_t *lcd, uint8_t command)
-{
-    lcd_write_byte(lcd, command, LCD_COMMAND);
-}
-
-static void lcd_update_display_control(hd44780_t *lcd)
-{
-    lcd_write_command(lcd, LCD_DISPLAY_CONTROL | lcd->display_control);
-}
-
-static void lcd_update_entry_mode(hd44780_t *lcd)
-{
-    lcd_write_command(lcd, LCD_ENTRY_MODE_SET | lcd->entry_mode);
+    if (!lcd || !lcd->bus || !lcd->bus->write_byte) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return lcd_try_write_byte(lcd, command, LCD_COMMAND);
 }
 
 static bool lcd_geometry_dimensions(hd44780_geometry_t geometry, uint8_t *cols, uint8_t *rows)
@@ -269,88 +252,175 @@ esp_err_t lcd_deinit(hd44780_t **lcd)
 
 void lcd_display_on(hd44780_t *lcd)
 {
-    lcd->display_control |= LCD_DISPLAY_ENABLE;
-    lcd_update_display_control(lcd);
+    (void)lcd_try_display_on(lcd);
 }
 
 void lcd_display_off(hd44780_t *lcd)
 {
-    lcd->display_control &= ~LCD_DISPLAY_ENABLE;
-    lcd_update_display_control(lcd);
+    (void)lcd_try_display_off(lcd);
 }
 
 void lcd_cursor_on(hd44780_t *lcd)
 {
-    lcd->display_control |= LCD_CURSOR_ENABLE;
-    lcd_update_display_control(lcd);
+    (void)lcd_try_cursor_on(lcd);
 }
 
 void lcd_cursor_off(hd44780_t *lcd)
 {
-    lcd->display_control &= ~LCD_CURSOR_ENABLE;
-    lcd_update_display_control(lcd);
+    (void)lcd_try_cursor_off(lcd);
 }
 
 void lcd_blink_on(hd44780_t *lcd)
 {
-    lcd->display_control |= LCD_BLINK_ENABLE;
-    lcd_update_display_control(lcd);
+    (void)lcd_try_blink_on(lcd);
 }
 
 void lcd_blink_off(hd44780_t *lcd)
 {
-    lcd->display_control &= ~LCD_BLINK_ENABLE;
-    lcd_update_display_control(lcd);
+    (void)lcd_try_blink_off(lcd);
 }
 
 void lcd_left_to_right(hd44780_t *lcd)
 {
-    lcd->entry_mode |= LCD_ENTRY_LEFT;
-    lcd_update_entry_mode(lcd);
+    (void)lcd_try_left_to_right(lcd);
 }
 
 void lcd_right_to_left(hd44780_t *lcd)
 {
-    lcd->entry_mode &= ~LCD_ENTRY_LEFT;
-    lcd_update_entry_mode(lcd);
+    (void)lcd_try_right_to_left(lcd);
 }
 
 void lcd_autoscroll_on(hd44780_t *lcd)
 {
-    lcd->entry_mode |= LCD_ENTRY_SHIFT_INCREMENT;
-    lcd_update_entry_mode(lcd);
+    (void)lcd_try_autoscroll_on(lcd);
 }
 
 void lcd_autoscroll_off(hd44780_t *lcd)
 {
-    lcd->entry_mode &= ~LCD_ENTRY_SHIFT_INCREMENT;
-    lcd_update_entry_mode(lcd);
+    (void)lcd_try_autoscroll_off(lcd);
+}
+
+static esp_err_t lcd_try_set_display_control_bit(hd44780_t *lcd, uint8_t bit, bool enabled)
+{
+    if (!lcd) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t next = enabled ? (lcd->display_control | bit) : (lcd->display_control & (uint8_t)~bit);
+    esp_err_t rc = lcd_try_write_command(lcd, LCD_DISPLAY_CONTROL | next);
+    if (rc == ESP_OK) {
+        lcd->display_control = next;
+    }
+    return rc;
+}
+
+esp_err_t lcd_try_display_on(hd44780_t *lcd)
+{
+    return lcd_try_set_display_control_bit(lcd, LCD_DISPLAY_ENABLE, true);
+}
+
+esp_err_t lcd_try_display_off(hd44780_t *lcd)
+{
+    return lcd_try_set_display_control_bit(lcd, LCD_DISPLAY_ENABLE, false);
+}
+
+esp_err_t lcd_try_cursor_on(hd44780_t *lcd)
+{
+    return lcd_try_set_display_control_bit(lcd, LCD_CURSOR_ENABLE, true);
+}
+
+esp_err_t lcd_try_cursor_off(hd44780_t *lcd)
+{
+    return lcd_try_set_display_control_bit(lcd, LCD_CURSOR_ENABLE, false);
+}
+
+esp_err_t lcd_try_blink_on(hd44780_t *lcd)
+{
+    return lcd_try_set_display_control_bit(lcd, LCD_BLINK_ENABLE, true);
+}
+
+esp_err_t lcd_try_blink_off(hd44780_t *lcd)
+{
+    return lcd_try_set_display_control_bit(lcd, LCD_BLINK_ENABLE, false);
+}
+
+static esp_err_t lcd_try_set_entry_mode_bit(hd44780_t *lcd, uint8_t bit, bool enabled)
+{
+    if (!lcd) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t next = enabled ? (lcd->entry_mode | bit) : (lcd->entry_mode & (uint8_t)~bit);
+    esp_err_t rc = lcd_try_write_command(lcd, LCD_ENTRY_MODE_SET | next);
+    if (rc == ESP_OK) {
+        lcd->entry_mode = next;
+    }
+    return rc;
+}
+
+esp_err_t lcd_try_left_to_right(hd44780_t *lcd)
+{
+    return lcd_try_set_entry_mode_bit(lcd, LCD_ENTRY_LEFT, true);
+}
+
+esp_err_t lcd_try_right_to_left(hd44780_t *lcd)
+{
+    return lcd_try_set_entry_mode_bit(lcd, LCD_ENTRY_LEFT, false);
+}
+
+esp_err_t lcd_try_autoscroll_on(hd44780_t *lcd)
+{
+    return lcd_try_set_entry_mode_bit(lcd, LCD_ENTRY_SHIFT_INCREMENT, true);
+}
+
+esp_err_t lcd_try_autoscroll_off(hd44780_t *lcd)
+{
+    return lcd_try_set_entry_mode_bit(lcd, LCD_ENTRY_SHIFT_INCREMENT, false);
 }
 
 void lcd_backlight_on(hd44780_t *lcd)
 {
-    if (!lcd || !lcd->bus || !lcd->bus->set_backlight) {
-        return;
-    }
-    esp_err_t rc = lcd->bus->set_backlight(lcd->bus, true);
-    if (rc != ESP_OK) {
-        ESP_LOGW(TAG, "set_backlight on failed: %s", esp_err_to_name(rc));
-    }
+    (void)lcd_try_backlight_on(lcd);
 }
 
 void lcd_backlight_off(hd44780_t *lcd)
 {
-    if (!lcd || !lcd->bus || !lcd->bus->set_backlight) {
-        return;
+    (void)lcd_try_backlight_off(lcd);
+}
+
+static esp_err_t lcd_try_set_backlight(hd44780_t *lcd, bool on)
+{
+    if (!lcd || !lcd->bus) {
+        return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t rc = lcd->bus->set_backlight(lcd->bus, false);
+    if (!lcd->bus->set_backlight) {
+        return ESP_OK;
+    }
+    esp_err_t rc = lcd->bus->set_backlight(lcd->bus, on);
     if (rc != ESP_OK) {
-        ESP_LOGW(TAG, "set_backlight off failed: %s", esp_err_to_name(rc));
+        ESP_LOGW(TAG, "set_backlight %s failed: %s", on ? "on" : "off", esp_err_to_name(rc));
     }
+    return rc;
+}
+
+esp_err_t lcd_try_backlight_on(hd44780_t *lcd)
+{
+    return lcd_try_set_backlight(lcd, true);
+}
+
+esp_err_t lcd_try_backlight_off(hd44780_t *lcd)
+{
+    return lcd_try_set_backlight(lcd, false);
 }
 
 void lcd_set_cursor(hd44780_t *lcd, uint8_t col, uint8_t row)
 {
+    (void)lcd_try_set_cursor(lcd, col, row);
+}
+
+esp_err_t lcd_try_set_cursor(hd44780_t *lcd, uint8_t col, uint8_t row)
+{
+    if (!lcd) {
+        return ESP_ERR_INVALID_ARG;
+    }
     if (col > lcd->cols - 1) {
         ESP_LOGE(TAG, "Cannot write to col %d. Please select a col in the range (0, %d)", col, lcd->cols - 1);
         col = lcd->cols - 1;
@@ -359,57 +429,121 @@ void lcd_set_cursor(hd44780_t *lcd, uint8_t col, uint8_t row)
         ESP_LOGE(TAG, "Cannot write to row %d. Please select a row in the range (0, %d)", row, lcd->rows - 1);
         row = lcd->rows - 1;
     }
-    lcd_write_command(lcd, LCD_SET_DDRAM_ADDR | (col + lcd->row_offsets[row]));
+    return lcd_try_write_command(lcd, LCD_SET_DDRAM_ADDR | (col + lcd->row_offsets[row]));
 }
 
 void lcd_write_char(hd44780_t *lcd, char c)
 {
-    lcd_write_byte(lcd, (uint8_t)c, LCD_WRITE);
+    (void)lcd_try_write_char(lcd, c);
+}
+
+esp_err_t lcd_try_write_char(hd44780_t *lcd, char c)
+{
+    if (!lcd || !lcd->bus || !lcd->bus->write_byte) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return lcd_try_write_byte(lcd, (uint8_t)c, LCD_WRITE);
 }
 
 void lcd_write_str(hd44780_t *lcd, const char *str)
 {
-    while (*str) {
-        lcd_write_char(lcd, *str++);
+    (void)lcd_try_write_str(lcd, str);
+}
+
+esp_err_t lcd_try_write_str(hd44780_t *lcd, const char *str)
+{
+    if (!str) {
+        return ESP_ERR_INVALID_ARG;
     }
+    while (*str) {
+        esp_err_t rc = lcd_try_write_char(lcd, *str++);
+        if (rc != ESP_OK) {
+            return rc;
+        }
+    }
+    return ESP_OK;
 }
 
 void lcd_write_strn(hd44780_t *lcd, const char *str, size_t len)
 {
-    for (size_t i = 0; i < len; ++i) {
-        lcd_write_char(lcd, str[i]);
+    (void)lcd_try_write_strn(lcd, str, len);
+}
+
+esp_err_t lcd_try_write_strn(hd44780_t *lcd, const char *str, size_t len)
+{
+    if (!str && len > 0) {
+        return ESP_ERR_INVALID_ARG;
     }
+    for (size_t i = 0; i < len; ++i) {
+        esp_err_t rc = lcd_try_write_char(lcd, str[i]);
+        if (rc != ESP_OK) {
+            return rc;
+        }
+    }
+    return ESP_OK;
 }
 
 void lcd_home(hd44780_t *lcd)
 {
-    lcd_write_command(lcd, LCD_HOME);
-    vTaskDelay(s_clear_home_ticks);
+    (void)lcd_try_home(lcd);
+}
+
+esp_err_t lcd_try_home(hd44780_t *lcd)
+{
+    esp_err_t rc = lcd_try_write_command(lcd, LCD_HOME);
+    if (rc == ESP_OK) {
+        vTaskDelay(s_clear_home_ticks);
+    }
+    return rc;
 }
 
 void lcd_clear_screen(hd44780_t *lcd)
 {
-    lcd_write_command(lcd, LCD_CLEAR);
-    vTaskDelay(s_clear_home_ticks);
+    (void)lcd_try_clear_screen(lcd);
+}
+
+esp_err_t lcd_try_clear_screen(hd44780_t *lcd)
+{
+    esp_err_t rc = lcd_try_write_command(lcd, LCD_CLEAR);
+    if (rc == ESP_OK) {
+        vTaskDelay(s_clear_home_ticks);
+    }
+    return rc;
 }
 
 void lcd_write_cgram(hd44780_t *lcd, uint8_t location, const uint8_t *charmap)
 {
+    (void)lcd_try_write_cgram(lcd, location, charmap);
+}
+
+esp_err_t lcd_try_write_cgram(hd44780_t *lcd, uint8_t location, const uint8_t *charmap)
+{
+    if (!charmap) {
+        return ESP_ERR_INVALID_ARG;
+    }
     location &= 0x7; /* 8 CGRAM slots */
-    lcd_write_command(lcd, LCD_SET_CGRAM_ADDR | (location << 3));
+    esp_err_t rc = lcd_try_write_command(lcd, LCD_SET_CGRAM_ADDR | (location << 3));
+    if (rc != ESP_OK) {
+        return rc;
+    }
     esp_rom_delay_us(80);
     for (uint8_t i = 0; i < 8; ++i) {
-        lcd_write_byte(lcd, charmap[i], LCD_WRITE);
+        rc = lcd_try_write_char(lcd, (char)charmap[i]);
+        if (rc != ESP_OK) {
+            return rc;
+        }
     }
+    return ESP_OK;
 }
 
 /* ------------------------------------------------------------------------- */
 /*  Bus backend: PCF8574 I/O expander over I2C                               */
 /* ------------------------------------------------------------------------- */
 
-/* PCF8574 -> HD44780 backpack bit layout.
- * P1 (RW) is tied low on the backpack and never written. */
-#define PCF_BL 0x08 /* P3 -> Backlight enable */
+/* Supported PCF8574 -> HD44780 backpack bit layout.
+ * P1 (RW) is tied low on the backpack and never written.
+ * P3 controls the backlight with active-high polarity. */
+#define PCF_BL 0x08 /* P3 -> Backlight enable, active high */
 #define PCF_EN 0x04 /* P2 -> E */
 #define PCF_RS 0x01 /* P0 -> RS */
 
@@ -430,6 +564,7 @@ typedef struct
     i2c_port_t              i2c_num;
     i2c_master_dev_handle_t dev;
     uint8_t                 backlight; /* PCF_BL or 0 */
+    bool                    owns_i2c_bus;
 } pcf8574_bus_t;
 
 static esp_err_t ensure_i2c_bus(i2c_port_t i2c_num, gpio_num_t sda, gpio_num_t scl, i2c_master_bus_handle_t *out)
@@ -533,7 +668,8 @@ static void pcf_destroy(lcd_bus_hd44780_t **bus)
     if (b->dev) {
         (void)i2c_master_bus_rm_device(b->dev);
     }
-    if (b->i2c_num >= I2C_NUM_0 && b->i2c_num < I2C_NUM_MAX && s_i2c_bus_refcount[b->i2c_num] > 0) {
+    if (b->owns_i2c_bus && b->i2c_num >= I2C_NUM_0 && b->i2c_num < I2C_NUM_MAX &&
+        s_i2c_bus_refcount[b->i2c_num] > 0) {
         if (--s_i2c_bus_refcount[b->i2c_num] == 0 && s_i2c_buses[b->i2c_num]) {
             (void)i2c_del_master_bus(s_i2c_buses[b->i2c_num]);
             s_i2c_buses[b->i2c_num] = NULL;
@@ -545,25 +681,22 @@ static void pcf_destroy(lcd_bus_hd44780_t **bus)
     *bus = NULL;
 }
 
-lcd_bus_hd44780_t *lcd_bus_pcf8574_i2c_create(i2c_port_t i2c_num, uint8_t i2c_addr, gpio_num_t sda, gpio_num_t scl,
-                                              uint32_t scl_hz)
+static lcd_bus_hd44780_t *pcf8574_create_on_bus(i2c_master_bus_handle_t bus_handle, uint8_t i2c_addr, uint32_t scl_hz,
+                                                bool owns_i2c_bus, i2c_port_t i2c_num)
 {
-    i2c_master_bus_handle_t bus_handle;
-    if (ensure_i2c_bus(i2c_num, sda, scl, &bus_handle) != ESP_OK) {
-        ESP_LOGE(TAG_PCF, "I2C bus init failed");
+    if (!bus_handle) {
+        ESP_LOGE(TAG_PCF, "invalid I2C bus handle");
         return NULL;
     }
 
     esp_err_t rc = i2c_master_probe(bus_handle, i2c_addr, pcf_i2c_timeout_ms());
     if (rc != ESP_OK) {
         ESP_LOGE(TAG_PCF, "I2C probe 0x%02X failed: %s", i2c_addr, esp_err_to_name(rc));
-        release_unused_i2c_bus(i2c_num);
         return NULL;
     }
 
     pcf8574_bus_t *b = calloc(1, sizeof(*b));
     if (!b) {
-        release_unused_i2c_bus(i2c_num);
         return NULL;
     }
 
@@ -576,19 +709,43 @@ lcd_bus_hd44780_t *lcd_bus_pcf8574_i2c_create(i2c_port_t i2c_num, uint8_t i2c_ad
     if (rc != ESP_OK) {
         ESP_LOGE(TAG_PCF, "I2C add device 0x%02X failed: %s", i2c_addr, esp_err_to_name(rc));
         free(b);
-        release_unused_i2c_bus(i2c_num);
         return NULL;
     }
 
     b->i2c_num            = i2c_num;
     b->backlight          = PCF_BL;
+    b->owns_i2c_bus       = owns_i2c_bus;
     b->base.write_byte    = pcf_write_byte;
     b->base.write_nibble  = pcf_write_nibble;
     b->base.set_backlight = pcf_set_backlight;
     b->base.destroy       = pcf_destroy;
     b->base.data_width    = 4;
-    s_i2c_bus_refcount[i2c_num]++;
+    if (owns_i2c_bus) {
+        s_i2c_bus_refcount[i2c_num]++;
+    }
     return &b->base;
+}
+
+lcd_bus_hd44780_t *lcd_bus_pcf8574_i2c_create(i2c_port_t i2c_num, uint8_t i2c_addr, gpio_num_t sda, gpio_num_t scl,
+                                              uint32_t scl_hz)
+{
+    i2c_master_bus_handle_t bus_handle;
+    if (ensure_i2c_bus(i2c_num, sda, scl, &bus_handle) != ESP_OK) {
+        ESP_LOGE(TAG_PCF, "I2C bus init failed");
+        return NULL;
+    }
+
+    lcd_bus_hd44780_t *bus = pcf8574_create_on_bus(bus_handle, i2c_addr, scl_hz, true, i2c_num);
+    if (!bus) {
+        release_unused_i2c_bus(i2c_num);
+    }
+    return bus;
+}
+
+lcd_bus_hd44780_t *lcd_bus_pcf8574_i2c_create_on_bus(i2c_master_bus_handle_t i2c_bus, uint8_t i2c_addr,
+                                                     uint32_t scl_hz)
+{
+    return pcf8574_create_on_bus(i2c_bus, i2c_addr, scl_hz, false, I2C_NUM_MAX);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -707,21 +864,24 @@ static void gpio_destroy(lcd_bus_hd44780_t **bus)
 
 static gpio_bus_t *gpio_bus_new(gpio_num_t rs, gpio_num_t en, const gpio_num_t *data, uint8_t width)
 {
+    gpio_bus_t *b = calloc(1, sizeof(*b));
+    if (!b) {
+        return NULL;
+    }
+
     if (gpio_setup_out(rs) != ESP_OK || gpio_setup_out(en) != ESP_OK) {
         ESP_LOGE(TAG_GPIO, "RS/EN pin config failed");
+        free(b);
         return NULL;
     }
     for (uint8_t i = 0; i < width; ++i) {
         if (gpio_setup_out(data[i]) != ESP_OK) {
             ESP_LOGE(TAG_GPIO, "data pin %u config failed", i);
+            free(b);
             return NULL;
         }
     }
 
-    gpio_bus_t *b = calloc(1, sizeof(*b));
-    if (!b) {
-        return NULL;
-    }
     b->rs = rs;
     b->en = en;
     for (uint8_t i = 0; i < width; ++i) {

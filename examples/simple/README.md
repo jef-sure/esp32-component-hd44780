@@ -1,6 +1,6 @@
 # Simple HD44780 I2C Example
 
-This example demonstrates an HD44780-compatible character LCD connected through a typical PCF8574 I2C backpack.
+This example demonstrates an HD44780-compatible character LCD connected through a PCF8574 I2C backpack that uses the component's supported pin mapping.
 
 ## Overview
 
@@ -44,5 +44,6 @@ The serial monitor logs LCD initialization and each self-test step.
 ## Notes
 
 - Make sure SDA and SCL have pull-ups. Many LCD backpacks include them.
+- Some PCF8574 LCD backpacks use different expander-to-LCD signal mappings or backlight polarity; this example expects the mapping documented by the component README.
 - If initialization fails, check the I2C address first.
 - The sample uses the I2C backend. Direct GPIO wiring is documented in the component README.

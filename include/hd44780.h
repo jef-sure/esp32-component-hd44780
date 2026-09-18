@@ -112,25 +112,52 @@ void lcd_right_to_left(hd44780_t *lcd);
 void lcd_autoscroll_on(hd44780_t *lcd);
 void lcd_autoscroll_off(hd44780_t *lcd);
 
+/* Checked variants for applications that need to detect runtime bus
+ * errors. The void helpers above call these and intentionally ignore the
+ * returned status. */
+esp_err_t lcd_try_display_on(hd44780_t *lcd);
+esp_err_t lcd_try_display_off(hd44780_t *lcd);
+esp_err_t lcd_try_cursor_on(hd44780_t *lcd);
+esp_err_t lcd_try_cursor_off(hd44780_t *lcd);
+esp_err_t lcd_try_blink_on(hd44780_t *lcd);
+esp_err_t lcd_try_blink_off(hd44780_t *lcd);
+esp_err_t lcd_try_left_to_right(hd44780_t *lcd);
+esp_err_t lcd_try_right_to_left(hd44780_t *lcd);
+esp_err_t lcd_try_autoscroll_on(hd44780_t *lcd);
+esp_err_t lcd_try_autoscroll_off(hd44780_t *lcd);
+
 /* Backlight control. No-op when the active bus backend doesn't implement
  * set_backlight (e.g. the direct-GPIO backends). */
 void lcd_backlight_on(hd44780_t *lcd);
 void lcd_backlight_off(hd44780_t *lcd);
+esp_err_t lcd_try_backlight_on(hd44780_t *lcd);
+esp_err_t lcd_try_backlight_off(hd44780_t *lcd);
 
 void lcd_set_cursor(hd44780_t *lcd, uint8_t col, uint8_t row);
 void lcd_home(hd44780_t *lcd);
 void lcd_clear_screen(hd44780_t *lcd);
+
+esp_err_t lcd_try_set_cursor(hd44780_t *lcd, uint8_t col, uint8_t row);
+esp_err_t lcd_try_home(hd44780_t *lcd);
+esp_err_t lcd_try_clear_screen(hd44780_t *lcd);
 
 void lcd_write_char(hd44780_t *lcd, char c);
 void lcd_write_str(hd44780_t *lcd, const char *str);
 void lcd_write_strn(hd44780_t *lcd, const char *str, size_t len);
 void lcd_write_cgram(hd44780_t *lcd, uint8_t location, const uint8_t *charmap);
 
+esp_err_t lcd_try_write_char(hd44780_t *lcd, char c);
+esp_err_t lcd_try_write_str(hd44780_t *lcd, const char *str);
+esp_err_t lcd_try_write_strn(hd44780_t *lcd, const char *str, size_t len);
+esp_err_t lcd_try_write_cgram(hd44780_t *lcd, uint8_t location, const uint8_t *charmap);
+
 /*
  * Create an HD44780 bus driven by a PCF8574 I/O expander reached over I2C.
- * Bit layout on the expander (typical "I2C LCD backpack"):
- *   P0 -> RS   P1 -> RW   P2 -> E   P3 -> Backlight
+ * This backend supports the common backpack bit layout below:
+ *   P0 -> RS   P1 -> RW   P2 -> E   P3 -> Backlight, active high
  *   P4..P7 -> D4..D7
+ * Other PCF8574 backpack mappings and backlight polarities exist; they are
+ * not configurable through this factory.
  *
  * The first call for a given i2c_num initializes the I2C master bus on
  * the given (sda, scl) pins; subsequent calls reuse that bus and only
@@ -140,7 +167,7 @@ void lcd_write_cgram(hd44780_t *lcd, uint8_t location, const uint8_t *charmap);
  * destroyed, the bus itself is torn down too.
  *
  * `scl_hz` selects the SCL frequency. Pass 0 for the conservative
- * 100 kHz default; 400 kHz works on virtually every backpack.
+ * 100 kHz default; 400 kHz works on virtually every supported backpack.
  *
  * Returns NULL on failure.
  */
@@ -150,6 +177,16 @@ lcd_bus_hd44780_t *lcd_bus_pcf8574_i2c_create( //
     gpio_num_t sda,                            //
     gpio_num_t scl,                            //
     uint32_t   scl_hz                          //
+);
+
+/* Create a PCF8574-backed HD44780 bus on an externally owned ESP-IDF I2C
+ * master bus. The caller configures, creates, and destroys `i2c_bus`; this
+ * component only probes the address and attaches/removes its device handle.
+ * `scl_hz` is the per-device SCL speed; pass 0 for 100 kHz. */
+lcd_bus_hd44780_t *lcd_bus_pcf8574_i2c_create_on_bus( //
+    i2c_master_bus_handle_t i2c_bus,                  //
+    uint8_t                 i2c_addr,                 //
+    uint32_t                scl_hz                    //
 );
 
 /*
