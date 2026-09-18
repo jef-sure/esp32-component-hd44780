@@ -421,6 +421,8 @@ static const char TAG_PCF[] = "HD44780/PCF8574";
  * lazily on first use and torn down when the last device is destroyed. */
 static i2c_master_bus_handle_t s_i2c_buses[I2C_NUM_MAX];
 static uint16_t                s_i2c_bus_refcount[I2C_NUM_MAX];
+static gpio_num_t              s_i2c_bus_sda[I2C_NUM_MAX];
+static gpio_num_t              s_i2c_bus_scl[I2C_NUM_MAX];
 
 typedef struct
 {
@@ -437,6 +439,11 @@ static esp_err_t ensure_i2c_bus(i2c_port_t i2c_num, gpio_num_t sda, gpio_num_t s
     }
 
     if (s_i2c_buses[i2c_num]) {
+        if (s_i2c_bus_sda[i2c_num] != sda || s_i2c_bus_scl[i2c_num] != scl) {
+            ESP_LOGE(TAG_PCF, "I2C port %d already uses SDA %d/SCL %d, requested SDA %d/SCL %d", (int)i2c_num,
+                     (int)s_i2c_bus_sda[i2c_num], (int)s_i2c_bus_scl[i2c_num], (int)sda, (int)scl);
+            return ESP_ERR_INVALID_STATE;
+        }
         *out = s_i2c_buses[i2c_num];
         return ESP_OK;
     }
@@ -452,9 +459,21 @@ static esp_err_t ensure_i2c_bus(i2c_port_t i2c_num, gpio_num_t sda, gpio_num_t s
     };
     esp_err_t rc = i2c_new_master_bus(&conf, &s_i2c_buses[i2c_num]);
     if (rc == ESP_OK) {
+        s_i2c_bus_sda[i2c_num] = sda;
+        s_i2c_bus_scl[i2c_num] = scl;
         *out = s_i2c_buses[i2c_num];
     }
     return rc;
+}
+
+static void release_unused_i2c_bus(i2c_port_t i2c_num)
+{
+    if (i2c_num >= I2C_NUM_0 && i2c_num < I2C_NUM_MAX && s_i2c_bus_refcount[i2c_num] == 0 && s_i2c_buses[i2c_num]) {
+        (void)i2c_del_master_bus(s_i2c_buses[i2c_num]);
+        s_i2c_buses[i2c_num] = NULL;
+        s_i2c_bus_sda[i2c_num] = GPIO_NUM_NC;
+        s_i2c_bus_scl[i2c_num] = GPIO_NUM_NC;
+    }
 }
 
 static inline int pcf_i2c_timeout_ms(void)
@@ -518,6 +537,8 @@ static void pcf_destroy(lcd_bus_hd44780_t **bus)
         if (--s_i2c_bus_refcount[b->i2c_num] == 0 && s_i2c_buses[b->i2c_num]) {
             (void)i2c_del_master_bus(s_i2c_buses[b->i2c_num]);
             s_i2c_buses[b->i2c_num] = NULL;
+            s_i2c_bus_sda[b->i2c_num] = GPIO_NUM_NC;
+            s_i2c_bus_scl[b->i2c_num] = GPIO_NUM_NC;
         }
     }
     free(b);
@@ -536,11 +557,13 @@ lcd_bus_hd44780_t *lcd_bus_pcf8574_i2c_create(i2c_port_t i2c_num, uint8_t i2c_ad
     esp_err_t rc = i2c_master_probe(bus_handle, i2c_addr, pcf_i2c_timeout_ms());
     if (rc != ESP_OK) {
         ESP_LOGE(TAG_PCF, "I2C probe 0x%02X failed: %s", i2c_addr, esp_err_to_name(rc));
+        release_unused_i2c_bus(i2c_num);
         return NULL;
     }
 
     pcf8574_bus_t *b = calloc(1, sizeof(*b));
     if (!b) {
+        release_unused_i2c_bus(i2c_num);
         return NULL;
     }
 
@@ -553,6 +576,7 @@ lcd_bus_hd44780_t *lcd_bus_pcf8574_i2c_create(i2c_port_t i2c_num, uint8_t i2c_ad
     if (rc != ESP_OK) {
         ESP_LOGE(TAG_PCF, "I2C add device 0x%02X failed: %s", i2c_addr, esp_err_to_name(rc));
         free(b);
+        release_unused_i2c_bus(i2c_num);
         return NULL;
     }
 

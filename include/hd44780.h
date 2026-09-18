@@ -134,9 +134,10 @@ void lcd_write_cgram(hd44780_t *lcd, uint8_t location, const uint8_t *charmap);
  *
  * The first call for a given i2c_num initializes the I2C master bus on
  * the given (sda, scl) pins; subsequent calls reuse that bus and only
- * attach a new device. The master bus is reference-counted: when the
- * last PCF8574 device on a port is destroyed, the bus itself is torn
- * down too.
+ * attach a new device. Reuse requires the same (sda, scl) pins; a
+ * conflicting request fails and returns NULL. The master bus is
+ * reference-counted: when the last PCF8574 device on a port is
+ * destroyed, the bus itself is torn down too.
  *
  * `scl_hz` selects the SCL frequency. Pass 0 for the conservative
  * 100 kHz default; 400 kHz works on virtually every backpack.
