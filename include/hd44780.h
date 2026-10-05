@@ -164,6 +164,11 @@ esp_err_t lcd_try_clear_screen(hd44780_t *lcd);
 void lcd_write_char(hd44780_t *lcd, char c);
 void lcd_write_str(hd44780_t *lcd, const char *str);
 void lcd_write_strn(hd44780_t *lcd, const char *str, size_t len);
+
+/* Write one 8-byte glyph into CGRAM slot `location` (0..7). The controller's
+ * address counter is left pointing into CGRAM afterwards: call
+ * lcd_set_cursor() (or lcd_home() / lcd_clear_screen()) before writing text
+ * again, otherwise the next characters overwrite glyph data. */
 void lcd_write_cgram(hd44780_t *lcd, uint8_t location, const uint8_t *charmap);
 
 esp_err_t lcd_try_write_char(hd44780_t *lcd, char c);
@@ -212,7 +217,8 @@ lcd_bus_hd44780_t *lcd_bus_pcf8574_i2c_create_on_bus( //
 /*
  * Create an HD44780 bus driven directly from GPIOs in 4-bit mode.
  * Only D4..D7 are wired; RW is assumed tied to GND on the board.
- * Pins are configured as outputs by the factory.
+ * Pins are configured as outputs by the factory and reset to their default
+ * state when the bus is destroyed.
  * Returns NULL on failure.
  */
 lcd_bus_hd44780_t *lcd_bus_gpio4_create( //
@@ -227,7 +233,8 @@ lcd_bus_hd44780_t *lcd_bus_gpio4_create( //
 /*
  * Create an HD44780 bus driven directly from GPIOs in 8-bit mode.
  * D0..D7 are all wired; RW is assumed tied to GND on the board.
- * Pins are configured as outputs by the factory.
+ * Pins are configured as outputs by the factory and reset to their default
+ * state when the bus is destroyed.
  * Returns NULL on failure.
  */
 lcd_bus_hd44780_t *lcd_bus_gpio8_create( //

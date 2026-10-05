@@ -5,7 +5,7 @@
  */
 
 #include "hd44780.h"
-#include "esp_timer.h"
+#include "esp_rom_sys.h"
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -49,9 +49,16 @@
 
 static const char TAG[] = "LCD HD44780";
 
-/* clear/home both need >= 1.52 ms per the datasheet; round up to one
- * tick at minimum so very coarse FreeRTOS tick rates still wait. */
-static const TickType_t s_clear_home_ticks = (pdMS_TO_TICKS(2) > 0) ? pdMS_TO_TICKS(2) : 1;
+/* clear/home both need >= 1.52 ms per the datasheet. */
+#define LCD_CLEAR_HOME_MS 2
+
+/* Block for at least `ms` milliseconds. vTaskDelay(n) only guarantees
+ * between n-1 and n tick periods, because the first tick may arrive right
+ * after the call, so round up to whole ticks and add one. */
+static void lcd_delay_ms(uint32_t ms)
+{
+    vTaskDelay((TickType_t)((ms * configTICK_RATE_HZ + 999) / 1000) + 1);
+}
 
 static inline esp_err_t lcd_try_write_byte(hd44780_t *lcd, uint8_t data, hd44780_mode_t mode)
 {
@@ -178,12 +185,12 @@ hd44780_t *lcd_init(lcd_bus_hd44780_t *bus, hd44780_geometry_t geometry, bool ow
     const uint8_t width_bit    = four_bit ? LCD_FUNCTION_4BIT : LCD_FUNCTION_8BIT;
     const uint8_t function_set = width_bit | (rows > 1 ? LCD_FUNCTION_2LINE : 0);
 
-    vTaskDelay(pdMS_TO_TICKS(200));                                  /* power-on settle */
+    lcd_delay_ms(200);                                               /* power-on settle */
     rc = lcd_try_write_nibble(lcd, LCD_FUNCTION_RESET, LCD_COMMAND); /* reset 1/3 */
     if (rc != ESP_OK) {
         goto fail;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));                                   /* > 4.1 ms */
+    lcd_delay_ms(10);                                                /* > 4.1 ms */
     rc = lcd_try_write_nibble(lcd, LCD_FUNCTION_RESET, LCD_COMMAND); /* reset 2/3 */
     if (rc != ESP_OK) {
         goto fail;
@@ -193,7 +200,7 @@ hd44780_t *lcd_init(lcd_bus_hd44780_t *bus, hd44780_geometry_t geometry, bool ow
     if (rc != ESP_OK) {
         goto fail;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
+    lcd_delay_ms(10);
     if (four_bit) {
         rc = lcd_try_write_nibble(lcd, function_set, LCD_COMMAND); /* switch to 4-bit */
         if (rc != ESP_OK) {
@@ -215,7 +222,7 @@ hd44780_t *lcd_init(lcd_bus_hd44780_t *bus, hd44780_geometry_t geometry, bool ow
     if (rc != ESP_OK) {
         goto fail;
     }
-    vTaskDelay(s_clear_home_ticks);
+    lcd_delay_ms(LCD_CLEAR_HOME_MS);
     rc = lcd_try_write_byte(lcd, LCD_ENTRY_MODE_SET | lcd->entry_mode, LCD_COMMAND);
     if (rc != ESP_OK) {
         goto fail;
@@ -496,7 +503,7 @@ esp_err_t lcd_try_home(hd44780_t *lcd)
 {
     esp_err_t rc = lcd_try_write_command(lcd, LCD_HOME);
     if (rc == ESP_OK) {
-        vTaskDelay(s_clear_home_ticks);
+        lcd_delay_ms(LCD_CLEAR_HOME_MS);
     }
     return rc;
 }
@@ -510,7 +517,7 @@ esp_err_t lcd_try_clear_screen(hd44780_t *lcd)
 {
     esp_err_t rc = lcd_try_write_command(lcd, LCD_CLEAR);
     if (rc == ESP_OK) {
-        vTaskDelay(s_clear_home_ticks);
+        lcd_delay_ms(LCD_CLEAR_HOME_MS);
     }
     return rc;
 }
@@ -608,7 +615,14 @@ static esp_err_t ensure_i2c_bus(i2c_port_t i2c_num, gpio_num_t sda, gpio_num_t s
 static void release_unused_i2c_bus(i2c_port_t i2c_num)
 {
     if (i2c_num >= I2C_NUM_0 && i2c_num < I2C_NUM_MAX && s_i2c_bus_refcount[i2c_num] == 0 && s_i2c_buses[i2c_num]) {
-        (void)i2c_del_master_bus(s_i2c_buses[i2c_num]);
+        /* Deletion fails while other devices are still attached to the
+         * bus. Keep the cached handle in that case so the port stays
+         * reusable instead of leaking a bus we can no longer reach. */
+        esp_err_t rc = i2c_del_master_bus(s_i2c_buses[i2c_num]);
+        if (rc != ESP_OK) {
+            ESP_LOGW(TAG_PCF, "I2C port %d master bus not deleted: %s", (int)i2c_num, esp_err_to_name(rc));
+            return;
+        }
         s_i2c_buses[i2c_num] = NULL;
         s_i2c_bus_sda[i2c_num] = GPIO_NUM_NC;
         s_i2c_bus_scl[i2c_num] = GPIO_NUM_NC;
@@ -625,10 +639,16 @@ static inline esp_err_t pcf_write(pcf8574_bus_t *b, uint8_t data)
     return i2c_master_transmit(b->dev, &data, 1, pcf_i2c_timeout_ms());
 }
 
-/* Toggle E to latch the four data bits currently presented on D4..D7. */
+/* Toggle E to latch the four data bits currently presented on D4..D7.
+ * RS and data are presented with E low first, so RS meets its setup time
+ * before the rising edge of E. */
 static esp_err_t pcf_pulse(pcf8574_bus_t *b, uint8_t data)
 {
-    esp_err_t rc = pcf_write(b, data | PCF_EN);
+    esp_err_t rc = pcf_write(b, data & ~PCF_EN);
+    if (rc != ESP_OK) {
+        return rc;
+    }
+    rc = pcf_write(b, data | PCF_EN);
     if (rc != ESP_OK) {
         return rc;
     }
@@ -674,12 +694,8 @@ static void pcf_destroy(lcd_bus_hd44780_t **bus)
     }
     if (b->owns_i2c_bus && b->i2c_num >= I2C_NUM_0 && b->i2c_num < I2C_NUM_MAX &&
         s_i2c_bus_refcount[b->i2c_num] > 0) {
-        if (--s_i2c_bus_refcount[b->i2c_num] == 0 && s_i2c_buses[b->i2c_num]) {
-            (void)i2c_del_master_bus(s_i2c_buses[b->i2c_num]);
-            s_i2c_buses[b->i2c_num] = NULL;
-            s_i2c_bus_sda[b->i2c_num] = GPIO_NUM_NC;
-            s_i2c_bus_scl[b->i2c_num] = GPIO_NUM_NC;
-        }
+        --s_i2c_bus_refcount[b->i2c_num];
+        release_unused_i2c_bus(b->i2c_num);
     }
     free(b);
     *bus = NULL;
@@ -862,7 +878,14 @@ static void gpio_destroy(lcd_bus_hd44780_t **bus)
     if (!bus || !*bus) {
         return;
     }
-    free(*bus);
+    /* Return the pins to their default (disabled) state. */
+    gpio_bus_t *b = (gpio_bus_t *)*bus;
+    gpio_reset_pin(b->rs);
+    gpio_reset_pin(b->en);
+    for (uint8_t i = 0; i < b->base.data_width; ++i) {
+        gpio_reset_pin(b->data[i]);
+    }
+    free(b);
     *bus = NULL;
 }
 

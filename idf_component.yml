@@ -1,4 +1,4 @@
-version: "0.1.1"
+version: "0.1.2"
 description: "ESP-IDF HD44780 character LCD driver with PCF8574 I2C backpack, GPIO 4-bit, and GPIO 8-bit backends."
 url: "https://github.com/jef-sure/esp32-component-hd44780"
 repository: "https://github.com/jef-sure/esp32-component-hd44780.git"

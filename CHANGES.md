@@ -1,5 +1,19 @@
 # Changes
 
+## 0.1.2 - 2026-10-05
+
+### Fixed
+
+- Made every tick-based delay a guaranteed minimum. `vTaskDelay(n)` can return after as little as `n-1` tick periods, so the clear/home wait (>= 1.52 ms) and the reset-sequence waits (> 4.1 ms) could be cut short and the following command dropped. Delays are now rounded up to whole ticks plus one.
+- The PCF8574 backend now presents RS and data with E low before raising E, so RS meets its setup time before the rising edge.
+- A failed `i2c_del_master_bus()` (other devices still attached to the port) no longer drops the cached bus handle; the bus stays reusable instead of leaking.
+- The direct-GPIO backends reset their pins to the default state when the bus is destroyed.
+
+### Changed
+
+- Included `esp_rom_sys.h` explicitly and dropped the unused `driver` and `esp_timer` component requirements.
+- Documented that `lcd_write_cgram()` leaves the address counter in CGRAM, and corrected the troubleshooting note about initialization failures.
+
 ## 0.1.1 - 2026-10-05
 
 ### Fixed

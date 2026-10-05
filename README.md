@@ -128,7 +128,7 @@ lcd_bus_hd44780_t *lcd_bus_gpio8_create(
 );
 ```
 
-All GPIO pins passed to the direct backends must be output-capable GPIOs.
+All GPIO pins passed to the direct backends must be distinct, output-capable GPIOs. Destroying the bus resets them to their default state.
 
 ## Controller Lifetime
 
@@ -299,6 +299,8 @@ Custom characters:
 - `lcd_write_cgram()` writes one 8-byte character pattern into CGRAM slot 0-7
 - `lcd_try_write_cgram()` returns the first runtime bus error while writing CGRAM
 
+Writing CGRAM leaves the controller's address counter inside CGRAM. Call `lcd_set_cursor()` (or `lcd_home()` / `lcd_clear_screen()`) before writing text again, otherwise the next characters overwrite glyph data.
+
 ## Thread Safety
 
 This component is not thread-safe.
@@ -308,7 +310,7 @@ Use one FreeRTOS task as the sole owner of the display. If other tasks need to u
 ## Troubleshooting
 
 - No output on I2C: verify the backpack address, SDA/SCL pins, power, and pull-ups.
-- Initialization fails immediately: confirm the selected geometry matches the actual module.
+- Initialization fails immediately: the bus could not be created or a bus write failed. On I2C, check the backpack address and wiring; on GPIO, check that all pins are distinct and output-capable.
 - Text appears on unexpected rows: double-check the geometry, especially for 16x4 and 20x4 modules.
 - Backlight helpers appear to do nothing: direct GPIO backends do not implement backlight control.
 - Random display corruption: keep all LCD access in one task.
