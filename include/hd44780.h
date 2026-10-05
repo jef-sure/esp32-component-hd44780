@@ -157,6 +157,10 @@ esp_err_t lcd_try_set_cursor(hd44780_t *lcd, uint8_t col, uint8_t row);
 esp_err_t lcd_try_home(hd44780_t *lcd);
 esp_err_t lcd_try_clear_screen(hd44780_t *lcd);
 
+/* lcd_try_write_str() and lcd_try_write_strn() return ESP_ERR_INVALID_ARG
+ * for a NULL handle or a NULL string. An empty string, or a call to
+ * lcd_try_write_strn() with len == 0, is a valid no-op that returns
+ * ESP_OK. */
 void lcd_write_char(hd44780_t *lcd, char c);
 void lcd_write_str(hd44780_t *lcd, const char *str);
 void lcd_write_strn(hd44780_t *lcd, const char *str, size_t len);

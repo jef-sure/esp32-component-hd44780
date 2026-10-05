@@ -150,7 +150,8 @@ hd44780_t *lcd_init(lcd_bus_hd44780_t *bus, hd44780_geometry_t geometry, bool ow
 
     if (!bus || !bus->write_byte || !bus->write_nibble) {
         ESP_LOGE(TAG, "invalid bus");
-        return NULL;
+        rc = ESP_ERR_INVALID_ARG;
+        goto fail;
     }
     if (!lcd_geometry_dimensions(geometry, &cols, &rows)) {
         ESP_LOGE(TAG, "unsupported geometry %d", (int)geometry);
@@ -474,7 +475,7 @@ void lcd_write_strn(hd44780_t *lcd, const char *str, size_t len)
 
 esp_err_t lcd_try_write_strn(hd44780_t *lcd, const char *str, size_t len)
 {
-    if (!lcd || (!str && len > 0)) {
+    if (!lcd || !str) {
         return ESP_ERR_INVALID_ARG;
     }
     for (size_t i = 0; i < len; ++i) {
@@ -892,6 +893,26 @@ static gpio_bus_t *gpio_bus_new(gpio_num_t rs, gpio_num_t en, const gpio_num_t *
                 free(b);
                 return NULL;
             }
+        }
+    }
+
+    /* Validate every pin before configuring any of them, so an invalid pin
+     * cannot leave the previously configured pins reconfigured as outputs. */
+    if (!GPIO_IS_VALID_OUTPUT_GPIO(rs)) {
+        ESP_LOGE(TAG_GPIO, "invalid output GPIO %d", rs);
+        free(b);
+        return NULL;
+    }
+    if (!GPIO_IS_VALID_OUTPUT_GPIO(en)) {
+        ESP_LOGE(TAG_GPIO, "invalid output GPIO %d", en);
+        free(b);
+        return NULL;
+    }
+    for (uint8_t i = 0; i < width; ++i) {
+        if (!GPIO_IS_VALID_OUTPUT_GPIO(data[i])) {
+            ESP_LOGE(TAG_GPIO, "invalid output GPIO %d", data[i]);
+            free(b);
+            return NULL;
         }
     }
 
