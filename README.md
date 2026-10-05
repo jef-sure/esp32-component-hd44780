@@ -17,7 +17,7 @@ The controller API is shared across all three backends, so the application logic
 - Works with PCF8574 LCD backpacks that use the supported fixed pin mapping
 - Supports direct GPIO wiring in 4-bit and 8-bit modes
 - Provides display, cursor, blink, entry-mode, clear, home, backlight, and CGRAM helpers
-- Fails early if the bus backend cannot initialize or the LCD init sequence cannot complete
+- Fails early if the bus backend cannot be created or a transport write fails during the init sequence. Because the driver is write-only, it detects bus errors but cannot confirm the LCD actually accepted the init commands.
 
 ## Limitations
 
@@ -138,7 +138,9 @@ Bind a bus to the controller with:
 hd44780_t *lcd_init(lcd_bus_hd44780_t *bus, hd44780_geometry_t geometry, bool owns_bus);
 ```
 
-If `owns_bus` is `true`, `lcd_deinit()` also destroys the bus object.
+If `owns_bus` is `true`, `lcd_init()` consumes the bus immediately: it is destroyed on every failure path (including allocation failure) and, on success, by `lcd_deinit()`. The caller must not destroy the bus itself after a failed `lcd_init()`. If `owns_bus` is `false`, the caller retains ownership and must destroy the bus.
+
+`owns_bus` governs the bus object only. A master bus passed to `lcd_bus_pcf8574_i2c_create_on_bus()` is always caller-owned.
 
 ```c
 esp_err_t lcd_deinit(hd44780_t **lcd);
@@ -167,9 +169,6 @@ void app_main(void)
 
     hd44780_t *lcd = lcd_init(bus, HD44780_GEOMETRY_20X4, true);
     if (!lcd) {
-        if (bus->destroy) {
-            bus->destroy(&bus);
-        }
         return;
     }
 
@@ -212,7 +211,8 @@ void app_main(void)
 
     hd44780_t *lcd = lcd_init(bus, HD44780_GEOMETRY_20X4, true);
     if (!lcd) {
-        bus->destroy(&bus);
+        /* lcd_init() consumed the bus on failure; only the caller-owned
+         * master bus remains to be cleaned up. */
         i2c_del_master_bus(i2c_bus);
         return;
     }
@@ -245,9 +245,6 @@ void app_main(void)
 
     hd44780_t *lcd = lcd_init(bus, HD44780_GEOMETRY_16X2, true);
     if (!lcd) {
-        if (bus->destroy) {
-            bus->destroy(&bus);
-        }
         return;
     }
 

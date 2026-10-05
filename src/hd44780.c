@@ -42,9 +42,9 @@
 #define LCD_BLINK_ENABLE          0x01
 #define LCD_CURSOR_ENABLE         0x02
 #define LCD_DISPLAY_ENABLE        0x04
-#define LCD_FUNCTION_RESET        0x30 /* 4-bit reset nibble */
-#define LCD_FUNCTION_8BIT         0x10
-#define LCD_FUNCTION_4BIT         0x20
+#define LCD_FUNCTION_RESET        0x30 /* init: function set, 8-bit, 1-line, 5x8 */
+#define LCD_FUNCTION_8BIT         0x30 /* function set with DL=1 (8-bit) */
+#define LCD_FUNCTION_4BIT         0x20 /* function set with DL=0 (4-bit) */
 #define LCD_FUNCTION_2LINE        0x08
 
 static const char TAG[] = "LCD HD44780";
@@ -143,9 +143,10 @@ static void lcd_configure_geometry(hd44780_t *lcd)
 
 hd44780_t *lcd_init(lcd_bus_hd44780_t *bus, hd44780_geometry_t geometry, bool owns_bus)
 {
-    uint8_t   cols = 0;
-    uint8_t   rows = 0;
-    esp_err_t rc   = ESP_OK;
+    uint8_t    cols = 0;
+    uint8_t    rows = 0;
+    esp_err_t  rc   = ESP_OK;
+    hd44780_t *lcd  = NULL;
 
     if (!bus || !bus->write_byte || !bus->write_nibble) {
         ESP_LOGE(TAG, "invalid bus");
@@ -153,11 +154,13 @@ hd44780_t *lcd_init(lcd_bus_hd44780_t *bus, hd44780_geometry_t geometry, bool ow
     }
     if (!lcd_geometry_dimensions(geometry, &cols, &rows)) {
         ESP_LOGE(TAG, "unsupported geometry %d", (int)geometry);
-        return NULL;
+        rc = ESP_ERR_NOT_SUPPORTED;
+        goto fail;
     }
-    hd44780_t *lcd = calloc(1, sizeof(*lcd));
+    lcd = calloc(1, sizeof(*lcd));
     if (!lcd) {
-        return NULL;
+        rc = ESP_ERR_NO_MEM;
+        goto fail;
     }
 
     lcd->bus             = bus;
@@ -226,8 +229,8 @@ hd44780_t *lcd_init(lcd_bus_hd44780_t *bus, hd44780_geometry_t geometry, bool ow
 
 fail:
     ESP_LOGE(TAG, "lcd init failed: %s", esp_err_to_name(rc));
-    if (lcd->owns_bus && lcd->bus && lcd->bus->destroy) {
-        lcd->bus->destroy(&lcd->bus);
+    if (owns_bus && bus && bus->destroy) {
+        bus->destroy(&bus);
     }
     free(lcd);
     return NULL;
@@ -452,7 +455,7 @@ void lcd_write_str(hd44780_t *lcd, const char *str)
 
 esp_err_t lcd_try_write_str(hd44780_t *lcd, const char *str)
 {
-    if (!str) {
+    if (!lcd || !str) {
         return ESP_ERR_INVALID_ARG;
     }
     while (*str) {
@@ -471,7 +474,7 @@ void lcd_write_strn(hd44780_t *lcd, const char *str, size_t len)
 
 esp_err_t lcd_try_write_strn(hd44780_t *lcd, const char *str, size_t len)
 {
-    if (!str && len > 0) {
+    if (!lcd || (!str && len > 0)) {
         return ESP_ERR_INVALID_ARG;
     }
     for (size_t i = 0; i < len; ++i) {
@@ -867,6 +870,29 @@ static gpio_bus_t *gpio_bus_new(gpio_num_t rs, gpio_num_t en, const gpio_num_t *
     gpio_bus_t *b = calloc(1, sizeof(*b));
     if (!b) {
         return NULL;
+    }
+
+    /* Reject duplicate pins. Sharing a GPIO between RS/EN and a data line,
+     * or between two data lines, yields a bus that configures cleanly but
+     * cannot actually drive the LCD. */
+    if (rs == en) {
+        ESP_LOGE(TAG_GPIO, "RS and EN use the same GPIO %d", rs);
+        free(b);
+        return NULL;
+    }
+    for (uint8_t i = 0; i < width; ++i) {
+        if (data[i] == rs || data[i] == en) {
+            ESP_LOGE(TAG_GPIO, "data pin %u conflicts with RS/EN (GPIO %d)", i, data[i]);
+            free(b);
+            return NULL;
+        }
+        for (uint8_t j = 0; j < i; ++j) {
+            if (data[j] == data[i]) {
+                ESP_LOGE(TAG_GPIO, "data pins %u and %u use the same GPIO %d", j, i, data[i]);
+                free(b);
+                return NULL;
+            }
+        }
     }
 
     if (gpio_setup_out(rs) != ESP_OK || gpio_setup_out(en) != ESP_OK) {

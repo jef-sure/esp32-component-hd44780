@@ -178,9 +178,6 @@ void app_main(void)
     hd44780_t *lcd = lcd_init(bus, SAMPLE_LCD_GEOMETRY, true);
     if (!lcd) {
         ESP_LOGE(TAG, "failed to initialize LCD");
-        if (bus->destroy) {
-            bus->destroy(&bus);
-        }
         return;
     }
 

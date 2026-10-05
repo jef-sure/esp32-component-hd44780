@@ -93,11 +93,24 @@ typedef struct hd44780_s
     uint8_t            entry_mode;
     uint8_t            row_offsets[4];
     lcd_bus_hd44780_t *bus;
-    bool               owns_bus; /* if true, lcd_deinit() calls bus->destroy() */
+    bool               owns_bus; /* if true, the controller owns the bus and destroys it */
 } hd44780_t;
 
-/* Bind a bus to a controller and run the HD44780 init sequence.
- * If `owns_bus` is true, lcd_deinit() will also destroy the bus. */
+/*
+ * Bind a bus to a controller and run the HD44780 init sequence.
+ *
+ * Ownership: when `owns_bus` is true, lcd_init() consumes the bus
+ * immediately. On every failure path -- including allocation failure and
+ * init-sequence errors -- lcd_init() destroys the bus before returning
+ * NULL, and lcd_deinit() destroys it on a successful init. The caller must
+ * NOT destroy the bus itself after a failed lcd_init(). When `owns_bus` is
+ * false, the caller retains ownership of the bus in all cases and is
+ * responsible for destroying it.
+ *
+ * `owns_bus` governs the bus object only. An I2C master bus passed to
+ * lcd_bus_pcf8574_i2c_create_on_bus() is always owned by the caller and is
+ * never destroyed by this component.
+ */
 hd44780_t *lcd_init(lcd_bus_hd44780_t *bus, hd44780_geometry_t geometry, bool owns_bus);
 esp_err_t  lcd_deinit(hd44780_t **lcd);
 
@@ -133,6 +146,9 @@ void lcd_backlight_off(hd44780_t *lcd);
 esp_err_t lcd_try_backlight_on(hd44780_t *lcd);
 esp_err_t lcd_try_backlight_off(hd44780_t *lcd);
 
+/* Position the cursor. Columns and rows are 0-based. Out-of-range values
+ * are clamped to the last column/row (and logged); the call still returns
+ * ESP_OK as long as the resulting command was written successfully. */
 void lcd_set_cursor(hd44780_t *lcd, uint8_t col, uint8_t row);
 void lcd_home(hd44780_t *lcd);
 void lcd_clear_screen(hd44780_t *lcd);

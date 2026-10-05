@@ -1,5 +1,19 @@
 # Changes
 
+## 0.1.1 - 2026-10-05
+
+### Fixed
+
+- Corrected the 8-bit function-set command so GPIO 8-bit initialization sends `0x38` (8-bit, 2-line, 5x8) instead of the invalid `0x18`.
+- Made `lcd_init(..., true)` consume the bus on every failure path, including allocation failure; examples no longer destroy the bus after a failed init.
+- Validated the LCD handle in `lcd_try_write_str()` and `lcd_try_write_strn()` so `NULL` handles and empty/zero-length writes are rejected.
+- Rejected duplicate RS, EN, and data pins in the direct-GPIO bus factories.
+- Raised the minimum ESP-IDF version to 5.3 to match the `esp_driver_i2c` and `esp_driver_gpio` component requirements.
+
+### Changed
+
+- Documented the cursor-clamping behavior of `lcd_set_cursor()` / `lcd_try_set_cursor()` and the `owns_bus` ownership contract.
+
 ## 0.1.0 - 2026-09-18
 
 ### Added
